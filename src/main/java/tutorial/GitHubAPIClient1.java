@@ -12,12 +12,9 @@ import java.io.InputStreamReader;
 import java.lang.reflect.Type;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Properties;
+import java.util.*;
 
-public class GitHubAPIClient
+public class GitHubAPIClient1
 {
     public static void main(String[] args) {
         try {
@@ -33,9 +30,12 @@ public class GitHubAPIClient
             props.put("group.id", "pixelpuff"); // Choose a unique group ID
             props.put("key.deserializer", StringDeserializer.class.getName());
             props.put("value.deserializer", StringDeserializer.class.getName());
-            props.put("auto.offset.reset", "earliest"); // Start reading from the beginning of the
+            props.put("auto.offset.reset", "latest"); // Start reading from the beginning of the
             KafkaProducer<String, String> producer = new KafkaProducer<>(props);
+
             KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props);
+            // Create a persistent record of processed user IDs
+            Set<String> processedUserIds = new HashSet<>(); // Use a set for efficient lookup
             // Create a URL object
             URL url = new URL(apiUrl);
 
@@ -66,52 +66,55 @@ public class GitHubAPIClient
                 // Map to store the count of comments for each user
                 Map<String, Integer> commentCountMap = new HashMap<>();
                 // Map to store the count of words in comments
-                Map<String, Integer> wordCountMap = new HashMap<>();
+                //Map<String, Integer> wordCountMap = new HashMap<>();
 
                 for (IssueComment comment : comments) {
                     String userLogin = comment.getUser().getLogin();
-                    String body = comment.getBody();
-
+                    //String body = comment.getBody();
+                    if (!processedUserIds.contains(userLogin)) {
+                        processedUserIds.add(userLogin);}
                     // Update the comment count for the user
                     commentCountMap.put(userLogin, commentCountMap.getOrDefault(userLogin, 0) + 1);
-                    String message = createMessage(userLogin, body); // Customize message format if needed
+                    /*String message = createMessage(userLogin, body); // Customize message format if needed
                     ProducerRecord<String, String> record = new ProducerRecord<>("github_comments", message); // Replace with your Kafka topic
                     producer.send(record);
                     // Update the word count
-                    String[] words = body.split("\\s+");
+                    /*String[] words = body.split("\\s+");
                     for (String word : words) {
                         // Remove non-alphabetic characters and convert to lowercase
                         word = word.replaceAll("[^a-zA-Z]", "").toLowerCase();
                         wordCountMap.put(word, wordCountMap.getOrDefault(word, 0) + 1);
-                    }
+                    }*/
                 }
 
                 // Print the list of active commenters
                 System.out.println("\nList of active commenters");
                 int rank = 1;
                 for (Map.Entry<String, Integer> entry : commentCountMap.entrySet()) {
-                    System.out.println(rank + ". " + entry.getKey() + " [" + entry.getValue() + " comments]");
-                    rank++;
-                }
+                    String userLogin = entry.getKey();
+                    int commentCount = entry.getValue();
 
-                // Print the list of word counts
-                System.out.println("\nList of word counts");
-                rank = 1;
-                for (Map.Entry<String, Integer> entry : wordCountMap.entrySet()) {
-                    System.out.println(rank + ". " + entry.getKey() + " [" + entry.getValue() + " times]");
+                    // Create the message using the format from the `createMessage` method
+                    String message = createMessage(rank,userLogin, commentCount);
+
+                    // Send the message to Kafka or perform other actions
+                    System.out.println(message); // Example: print the message
+
+                    // Alternatively, send to Kafka:
+                    ProducerRecord<String, String> record = new ProducerRecord<>("userCommentsCount", message);
+                    producer.send(record);
+
                     rank++;
                 }
                 producer.flush(); // Ensure all messages are sent
                 producer.close();
-                consumer.subscribe(Arrays.asList("github_comments")); // Replace with your Kafka topic
+                consumer.subscribe(List.of("github_comments")); // Replace with your Kafka topic
                 while (true) {
                     ConsumerRecords<String, String> records = consumer.poll(100);
                     for (ConsumerRecord<String, String> record : records) {
                         String key = record.key();
                         String value = record.value();
                         System.out.printf("Received message: key = %s, value = %s\n", key, value);
-
-                        // Process the message here
                     }
                 }
             } else {
@@ -119,6 +122,7 @@ public class GitHubAPIClient
             }
 
             // Close the connection
+
             connection.disconnect();
         } catch (Exception e) {
             e.printStackTrace();
@@ -126,7 +130,7 @@ public class GitHubAPIClient
 
     }
     // Helper method to create a message for Kafka (optional customization)
-    private static String createMessage(String userLogin, String body) {
-        return "User: " + userLogin + ", Comment: " + body;
+    private static String createMessage(int rank, String userLogin, int commentsC) {
+        return rank + ". " + userLogin + " [" + commentsC + " comments]";
     }
 }
